@@ -75,14 +75,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const doSave = useCallback(async (tok: string, rep: string) => {
+    // Never save if the session has been cleared (logged out)
+    if (!loadToken() || !loadRepo()) return;
     const snapshot = currentStoreSnapshot();
-    // Never overwrite GitHub with empty data — guard against any code path
-    if (isEmptyState(snapshot)) return;
+    // Never overwrite GitHub with an empty snapshot
+    if (isEmptyState(snapshot as Record<string, unknown>)) return;
     setSyncStatus('saving');
     try {
-      console.log('[sync] saving to repo…');
       await saveToRepo(tok, rep, snapshot);
-      console.log('[sync] saved ok');
       setSyncStatus('saved');
     } catch (e) {
       console.error('[sync] save failed:', e);
@@ -122,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     saveRepo(rep);
     try {
       const remote = await loadFromRepo(tok, rep);
-      if (remote && !isEmptyState(remote)) applyState(remote);
+      applyState(remote ?? {});
       setSyncStatus('saved');
     } catch (e) {
       console.error('[auth] load on login failed:', e);
@@ -139,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setRepo(null);
     setSyncStatus('idle');
-    // Do NOT touch the store — data stays local until overwritten by a real load
+    // Do NOT wipe the store — data stays in GitHub, loads back on next login
   }, []);
 
   // On mount: restore session and load from repo
@@ -155,13 +155,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('[auth] loading from repo…');
         const remote = await loadFromRepo(tok, rep);
         console.log('[auth] loaded, empty?', !remote || isEmptyState(remote));
-        // Only overwrite local state if GitHub has real data
-        if (remote && !isEmptyState(remote)) applyState(remote);
+        applyState(remote ?? {});
         setSyncStatus('saved');
       } catch (e) {
         console.error('[auth] load failed:', e);
         setSyncStatus('error');
-        // On load failure, keep whatever is in local store — do not wipe it
       }
       setToken(tok);
       setRepo(rep);
