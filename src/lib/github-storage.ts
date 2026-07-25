@@ -48,8 +48,10 @@ export async function loadFromRepo(token: string, repo: string): Promise<Record<
   const data = await res.json();
   // Content is base64-encoded
   const content = atob(data.content.replace(/\n/g, ''));
-  if (!content || content === '{}') return null;
-  return JSON.parse(content);
+  if (!content) return null;
+  const parsed = JSON.parse(content);
+  // Never treat a non-empty file as null — return it even if it looks minimal
+  return parsed;
 }
 
 export async function saveToRepo(token: string, repo: string, state: unknown): Promise<void> {

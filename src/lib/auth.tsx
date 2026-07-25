@@ -122,7 +122,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     saveRepo(rep);
     try {
       const remote = await loadFromRepo(tok, rep);
-      applyState(remote ?? {});
+      if (remote) {
+        applyState(remote);
+      }
       setSyncStatus('saved');
     } catch (e) {
       console.error('[auth] load on login failed:', e);
@@ -154,8 +156,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         console.log('[auth] loading from repo…');
         const remote = await loadFromRepo(tok, rep);
-        console.log('[auth] loaded, empty?', !remote || isEmptyState(remote));
-        applyState(remote ?? {});
+        console.log('[auth] loaded:', remote ? `${Object.keys(remote).join(', ')}` : 'null (file not found yet)');
+        if (remote) {
+          applyState(remote);
+        }
         setSyncStatus('saved');
       } catch (e) {
         console.error('[auth] load failed:', e);
