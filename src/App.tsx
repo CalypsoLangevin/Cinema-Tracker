@@ -54,31 +54,12 @@ function AppShell() {
   );
 }
 
-// Handle GitHub Pages SPA redirect: ?r=/some/path → replace history entry
-function useGhPagesRedirect() {
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const redirect = params.get('r');
-    if (redirect) {
-      const base = '/Cinema-Tracker';
-      window.history.replaceState(null, '', base + redirect);
-    }
-  }, []);
-}
-
-function RedirectHandler({ children }: { children: React.ReactNode }) {
-  useGhPagesRedirect();
-  return <>{children}</>;
-}
-
 export default function App() {
   return (
     <BrowserRouter basename="/Cinema-Tracker">
-      <RedirectHandler>
-        <AuthProvider>
-          <AppShell />
-        </AuthProvider>
-      </RedirectHandler>
+      <AuthProvider>
+        <AppShell />
+      </AuthProvider>
     </BrowserRouter>
   );
 }
