@@ -45,13 +45,14 @@ export async function loadFromRepo(token: string, repo: string): Promise<Record<
   const res = await ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GitHub ${res.status}`);
-  const data = await res.json();
-  // Content is base64-encoded
-  const content = atob(data.content.replace(/\n/g, ''));
-  if (!content) return null;
-  const parsed = JSON.parse(content);
-  // Never treat a non-empty file as null — return it even if it looks minimal
-  return parsed;
+  const meta = await res.json();
+
+  // For large files the inline base64 content is truncated — always fetch via raw URL
+  const rawRes = await fetch(meta.download_url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!rawRes.ok) throw new Error(`GitHub raw ${rawRes.status}`);
+  return rawRes.json();
 }
 
 export async function saveToRepo(token: string, repo: string, state: unknown): Promise<void> {
