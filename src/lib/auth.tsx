@@ -87,7 +87,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const tok = tokenRef.current ?? loadToken();
     const rep = repoRef.current ?? loadRepo();
     if (!tok || !rep) { console.log('[sync] skipped — no session'); return; }
-    if (savingRef.current) { console.log('[sync] skipped — already saving'); return; }
+    // Wait if already saving rather than skipping
+    if (savingRef.current) {
+      await new Promise(r => setTimeout(r, 2500));
+    }
     savingRef.current = true;
     setSyncStatus('saving');
     try {

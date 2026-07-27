@@ -114,14 +114,19 @@ export function Import() {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const fileRef = useRef<HTMLInputElement>(null);
   const store = useStore();
-  const { forceSync } = useAuth();
+  const { forceSync, token, repo } = useAuth();
 
   async function syncToGithub() {
+    if (!token || !repo) {
+      setSyncStatus('error');
+      return;
+    }
     setSyncStatus('saving');
     try {
       await forceSync();
       setSyncStatus('saved');
-    } catch {
+    } catch (e) {
+      console.error('[import] sync failed:', e);
       setSyncStatus('error');
     }
   }
