@@ -35,7 +35,6 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-
 function currentStoreSnapshot() {
   const s = useStore.getState();
   return {
@@ -65,33 +64,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const doSave = useCallback(async (tok: string, rep: string) => {
-    // Never save if the session has been cleared (logged out)
-    if (!loadToken() || !loadRepo()) return;
-    const snapshot = currentStoreSnapshot();
+  // Refs so callbacks always see the latest token/repo without re-registering
+  const tokenRef = useRef<string | null>(null);
+  const repoRef = useRef<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savingRef = useRef(false);
+
+  const doSave = useCallback(async () => {
+    const tok = tokenRef.current ?? loadToken();
+    const rep = repoRef.current ?? loadRepo();
+    if (!tok || !rep) { console.log('[sync] skipped — no session'); return; }
+    if (savingRef.current) { console.log('[sync] skipped — already saving'); return; }
+    savingRef.current = true;
     setSyncStatus('saving');
     try {
-      await saveToRepo(tok, rep, snapshot);
+      console.log('[sync] saving…');
+      await saveToRepo(tok, rep, currentStoreSnapshot());
+      console.log('[sync] saved ok');
       setSyncStatus('saved');
     } catch (e) {
       console.error('[sync] save failed:', e);
       setSyncStatus('error');
+      throw e;
+    } finally {
+      savingRef.current = false;
     }
   }, []);
 
-  const scheduleSync = useCallback((tok: string, rep: string) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => doSave(tok, rep), 1500);
+  const scheduleSync = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doSave(), 2000);
   }, [doSave]);
 
   const forceSync = useCallback(async () => {
-    const tok = loadToken();
-    const rep = loadRepo();
-    if (!tok || !rep) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    await doSave(tok, rep);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    await doSave();
   }, [doSave]);
 
   const login = useCallback(async (tok: string, rep: string) => {
@@ -111,11 +119,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     saveToken(tok);
     saveRepo(rep);
+    tokenRef.current = tok;
+    repoRef.current = rep;
     try {
       const remote = await loadFromRepo(tok, rep);
-      if (remote) {
-        applyState(remote);
-      }
+      if (remote) applyState(remote);
       setSyncStatus('saved');
     } catch (e) {
       console.error('[auth] load on login failed:', e);
@@ -126,9 +134,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     clearToken();
     clearRepo();
+    tokenRef.current = null;
+    repoRef.current = null;
     setToken(null);
     setRepo(null);
     setSyncStatus('idle');
@@ -139,18 +149,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const tok = loadToken();
     const rep = loadRepo();
-    console.log('[auth] mount — token:', tok ? 'yes' : 'no', 'repo:', rep ?? 'none');
     if (!tok || !rep) { setLoading(false); return; }
+    tokenRef.current = tok;
+    repoRef.current = rep;
     (async () => {
       const tokenOk = await validateToken(tok);
-      if (!tokenOk) { clearToken(); clearRepo(); setLoading(false); return; }
+      if (!tokenOk) {
+        clearToken(); clearRepo();
+        tokenRef.current = null; repoRef.current = null;
+        setLoading(false);
+        return;
+      }
       try {
         console.log('[auth] loading from repo…');
         const remote = await loadFromRepo(tok, rep);
-        console.log('[auth] loaded:', remote ? `keys: ${Object.keys(remote).join(', ')}` : 'null (file not found yet)');
-        if (remote) {
-          applyState(remote);
-        }
+        console.log('[auth] loaded:', remote ? `keys: ${Object.keys(remote).join(', ')}` : 'null');
+        if (remote) applyState(remote);
         setSyncStatus('saved');
       } catch (e) {
         console.error('[auth] load failed:', e);
@@ -162,16 +176,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  // Sync to repo on every store change — guard against firing after logout
+  // Sync on every store change (debounced)
   useEffect(() => {
     if (!token || !repo) return;
-    const unsub = useStore.subscribe(() => {
-      // Re-read from storage: if cleared (logout), skip sync
-      if (!loadToken() || !loadRepo()) return;
-      scheduleSync(token, repo);
-    });
+    const unsub = useStore.subscribe(() => scheduleSync());
     return unsub;
   }, [token, repo, scheduleSync]);
+
+  // Periodic sync every 30 seconds as a safety net
+  useEffect(() => {
+    if (!token || !repo) return;
+    const interval = setInterval(() => doSave(), 30_000);
+    return () => clearInterval(interval);
+  }, [token, repo, doSave]);
 
   return (
     <AuthContext.Provider value={{ token, repo, loading, error, syncStatus, login, logout, forceSync }}>
