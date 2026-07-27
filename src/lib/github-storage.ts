@@ -11,7 +11,7 @@ export function loadRepo(): string | null { return localStorage.getItem(REPO_KEY
 export function clearRepo() { localStorage.removeItem(REPO_KEY); }
 
 async function ghFetch(token: string, path: string, options: RequestInit = {}) {
-  const res = await fetch(`https://api.github.com${path}`, {
+  return fetch(`https://api.github.com${path}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -20,7 +20,6 @@ async function ghFetch(token: string, path: string, options: RequestInit = {}) {
       ...(options.headers ?? {}),
     },
   });
-  return res;
 }
 
 export async function validateToken(token: string): Promise<boolean> {
@@ -42,16 +41,19 @@ export async function validateRepo(token: string, repo: string): Promise<boolean
 }
 
 export async function loadFromRepo(token: string, repo: string): Promise<Record<string, unknown> | null> {
-  const res = await ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`);
+  // application/vnd.github.raw returns the raw file content directly — no base64, no size limit
+  const res = await fetch(`https://api.github.com/repos/${repo}/contents/${FILE_PATH}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github.raw',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`GitHub contents ${res.status}`);
-  const meta = await res.json();
-
-  // download_url already has auth embedded in the URL — do NOT add Authorization header
-  // (adding it causes a CORS preflight that GitHub blocks for raw.githubusercontent.com)
-  const rawRes = await fetch(meta.download_url);
-  if (!rawRes.ok) throw new Error(`GitHub raw ${rawRes.status}`);
-  return rawRes.json();
+  if (!res.ok) throw new Error(`GitHub ${res.status} ${res.statusText}`);
+  const text = await res.text();
+  if (!text || text.trim() === '') return null;
+  return JSON.parse(text);
 }
 
 export async function saveToRepo(token: string, repo: string, state: unknown): Promise<void> {
@@ -61,16 +63,12 @@ export async function saveToRepo(token: string, repo: string, state: unknown): P
   const getRes = await ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`);
   let sha: string | undefined;
   if (getRes.ok) {
-    const existing = await getRes.json();
-    sha = existing.sha;
+    sha = (await getRes.json()).sha;
   } else if (getRes.status !== 404) {
     throw new Error(`GitHub ${getRes.status}`);
   }
 
-  const body: Record<string, unknown> = {
-    message: 'Update Queued data',
-    content,
-  };
+  const body: Record<string, unknown> = { message: 'Update Queued data', content };
   if (sha) body.sha = sha;
 
   const putRes = await ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`, {

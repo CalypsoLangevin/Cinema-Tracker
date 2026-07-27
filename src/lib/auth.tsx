@@ -166,8 +166,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         console.log('[auth] loading from repo…');
         const remote = await loadFromRepo(tok, rep);
-        console.log('[auth] loaded:', remote ? `keys: ${Object.keys(remote).join(', ')}` : 'null');
-        if (remote) applyState(remote);
+        if (remote) {
+          const movies = Object.keys(remote.movies as object ?? {}).length;
+          const shows = Object.keys(remote.shows as object ?? {}).length;
+          console.log(`[auth] loaded ok — ${movies} movies, ${shows} shows`);
+          applyState(remote);
+        } else {
+          console.log('[auth] file not found yet (null)');
+        }
         setSyncStatus('saved');
         setLoadError(null);
       } catch (e) {
