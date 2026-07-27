@@ -47,12 +47,13 @@ export async function loadFromRepo(token: string, repo: string): Promise<Record<
   if (!res.ok) throw new Error(`GitHub ${res.status}`);
   const meta = await res.json();
 
-  // For large files the inline base64 content is truncated — always fetch via raw URL
-  const rawRes = await fetch(meta.download_url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!rawRes.ok) throw new Error(`GitHub raw ${rawRes.status}`);
-  return rawRes.json();
+  // Use the git blobs API — supports auth header, no size limit, no CORS issues
+  const blobRes = await ghFetch(token, `/repos/${repo}/git/blobs/${meta.sha}`);
+  if (!blobRes.ok) throw new Error(`GitHub blob ${blobRes.status}`);
+  const blob = await blobRes.json();
+  const content = atob(blob.content.replace(/\n/g, ''));
+  if (!content) return null;
+  return JSON.parse(content);
 }
 
 export async function saveToRepo(token: string, repo: string, state: unknown): Promise<void> {
