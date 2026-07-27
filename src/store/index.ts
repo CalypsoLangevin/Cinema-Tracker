@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { TrackedMovie, TrackedShow, WatchlistEntry, EpisodeEntry, MediaType } from '../types';
 
 interface State {
+  _rehydrated: boolean;
   movies: Record<number, TrackedMovie>;
   shows: Record<number, TrackedShow>;
   watchlist: WatchlistEntry[];
@@ -41,6 +42,7 @@ interface State {
 export const useStore = create<State>()(
   persist(
     (set, get) => ({
+      _rehydrated: false,
       movies: {},
       shows: {},
       watchlist: [],
@@ -223,6 +225,11 @@ export const useStore = create<State>()(
 
       setTheme: (theme) => set({ theme }),
     }),
-    { name: 'queued-store' }
+    {
+      name: 'queued-store',
+      onRehydrateStorage: () => () => {
+        useStore.setState({ _rehydrated: true });
+      },
+    }
   )
 );

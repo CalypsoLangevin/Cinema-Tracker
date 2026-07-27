@@ -7,6 +7,15 @@ import {
 } from './github-storage';
 import { useStore } from '../store';
 
+function waitForRehydration(): Promise<void> {
+  return new Promise((resolve) => {
+    if (useStore.getState()._rehydrated) { resolve(); return; }
+    const unsub = useStore.subscribe((s) => {
+      if (s._rehydrated) { unsub(); resolve(); }
+    });
+  });
+}
+
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface AuthState {
@@ -156,6 +165,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     tokenRef.current = tok;
     repoRef.current = rep;
     (async () => {
+      // Wait for Zustand to finish rehydrating from localStorage before we
+      // overwrite with GitHub data — otherwise persist stomps our applyState
+      await waitForRehydration();
+
       const tokenOk = await validateToken(tok);
       if (!tokenOk) {
         clearToken(); clearRepo();
