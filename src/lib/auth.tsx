@@ -35,13 +35,6 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-function isEmptyState(data: Record<string, unknown>) {
-  return (
-    Object.keys((data.movies as object) ?? {}).length === 0 &&
-    Object.keys((data.shows as object) ?? {}).length === 0 &&
-    ((data.watchlist as unknown[]) ?? []).length === 0
-  );
-}
 
 function currentStoreSnapshot() {
   const s = useStore.getState();
@@ -78,8 +71,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Never save if the session has been cleared (logged out)
     if (!loadToken() || !loadRepo()) return;
     const snapshot = currentStoreSnapshot();
-    // Never overwrite GitHub with an empty snapshot
-    if (isEmptyState(snapshot as Record<string, unknown>)) return;
     setSyncStatus('saving');
     try {
       await saveToRepo(tok, rep, snapshot);
@@ -156,7 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         console.log('[auth] loading from repo…');
         const remote = await loadFromRepo(tok, rep);
-        console.log('[auth] loaded:', remote ? `${Object.keys(remote).join(', ')}` : 'null (file not found yet)');
+        console.log('[auth] loaded:', remote ? `keys: ${Object.keys(remote).join(', ')}` : 'null (file not found yet)');
         if (remote) {
           applyState(remote);
         }
