@@ -44,16 +44,14 @@ export async function validateRepo(token: string, repo: string): Promise<boolean
 export async function loadFromRepo(token: string, repo: string): Promise<Record<string, unknown> | null> {
   const res = await ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`);
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`GitHub ${res.status}`);
+  if (!res.ok) throw new Error(`GitHub contents ${res.status}`);
   const meta = await res.json();
 
-  // Use the git blobs API — supports auth header, no size limit, no CORS issues
-  const blobRes = await ghFetch(token, `/repos/${repo}/git/blobs/${meta.sha}`);
-  if (!blobRes.ok) throw new Error(`GitHub blob ${blobRes.status}`);
-  const blob = await blobRes.json();
-  const content = atob(blob.content.replace(/\n/g, ''));
-  if (!content) return null;
-  return JSON.parse(content);
+  // download_url already has auth embedded in the URL — do NOT add Authorization header
+  // (adding it causes a CORS preflight that GitHub blocks for raw.githubusercontent.com)
+  const rawRes = await fetch(meta.download_url);
+  if (!rawRes.ok) throw new Error(`GitHub raw ${rawRes.status}`);
+  return rawRes.json();
 }
 
 export async function saveToRepo(token: string, repo: string, state: unknown): Promise<void> {

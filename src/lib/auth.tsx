@@ -14,6 +14,7 @@ interface AuthState {
   repo: string | null;
   loading: boolean;
   error: string | null;
+  loadError: string | null;
   syncStatus: SyncStatus;
   login: (token: string, repo: string) => Promise<void>;
   logout: () => void;
@@ -25,6 +26,7 @@ const AuthContext = createContext<AuthState>({
   repo: null,
   loading: true,
   error: null,
+  loadError: null,
   syncStatus: 'idle',
   login: async () => {},
   logout: () => {},
@@ -63,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [repo, setRepo] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
 
   // Refs so callbacks always see the latest token/repo without re-registering
@@ -166,8 +169,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('[auth] loaded:', remote ? `keys: ${Object.keys(remote).join(', ')}` : 'null');
         if (remote) applyState(remote);
         setSyncStatus('saved');
+        setLoadError(null);
       } catch (e) {
-        console.error('[auth] load failed:', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[auth] load failed:', msg);
+        setLoadError(msg);
         setSyncStatus('error');
       }
       setToken(tok);
@@ -191,7 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [token, repo, doSave]);
 
   return (
-    <AuthContext.Provider value={{ token, repo, loading, error, syncStatus, login, logout, forceSync }}>
+    <AuthContext.Provider value={{ token, repo, loading, error, loadError, syncStatus, login, logout, forceSync }}>
       {children}
     </AuthContext.Provider>
   );

@@ -15,7 +15,7 @@ import { Stats } from './pages/Stats';
 import { Import } from './pages/Import';
 
 function AppShell() {
-  const { token, loading } = useAuth();
+  const { token, loading, loadError, forceSync } = useAuth();
   const theme = useStore((s) => s.theme);
 
   useEffect(() => {
@@ -37,6 +37,13 @@ function AppShell() {
   if (!token) return <Login />;
 
   return (
+    <>
+    {loadError && (
+      <div className="fixed top-0 left-0 right-0 z-[100] bg-red-900/90 text-red-200 text-xs px-4 py-2 flex items-center justify-between gap-4">
+        <span>⚠ Failed to load data from GitHub: <strong>{loadError}</strong></span>
+        <button onClick={forceSync} className="underline shrink-0">Retry</button>
+      </div>
+    )}
     <div className="min-h-screen pb-16 sm:pb-0">
       <Navbar />
       <Routes>
@@ -51,6 +58,7 @@ function AppShell() {
         <Route path="/import" element={<Import />} />
       </Routes>
     </div>
+    </>
   );
 }
 
