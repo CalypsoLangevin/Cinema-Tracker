@@ -13,6 +13,8 @@ function waitForRehydration(): Promise<void> {
     const unsub = useStore.subscribe((s) => {
       if (s._rehydrated) { unsub(); resolve(); }
     });
+    // Safety timeout — if persist never fires, unblock after 500ms
+    setTimeout(() => { unsub(); resolve(); }, 500);
   });
 }
 
