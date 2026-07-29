@@ -120,6 +120,18 @@ export function ShowDetail() {
   const [rewatchEnd, setRewatchEnd] = useState('');
 
   const logEpisodeAndCheck = (sn: number, en: number, date?: string) => {
+    // Register the show the first time an episode is logged
+    if (!tracked && detail) {
+      addShow({
+        id: detail.id,
+        name: detail.name,
+        poster_path: detail.poster_path,
+        first_air_date: detail.first_air_date,
+        episode_run_time: detail.episode_run_time,
+        watchedEpisodes: [],
+        status: 'watching',
+      });
+    }
     logEpisode(showId, { seasonNumber: sn, episodeNumber: en }, date);
     if (!detail) return;
     const totalEps = detail.seasons.reduce((acc, s) => acc + (s.season_number > 0 ? s.episode_count : 0), 0);
@@ -137,21 +149,12 @@ export function ShowDetail() {
   useEffect(() => {
     tmdb.show(showId).then((d) => {
       setDetail(d);
-      const hasUpcoming = !!d.next_episode_to_air;
-      addShow({
-        id: d.id,
-        name: d.name,
-        poster_path: d.poster_path,
-        first_air_date: d.first_air_date,
-        episode_run_time: d.episode_run_time,
-        watchedEpisodes: [],
-        status: 'watching',
-      });
-      // If already tracked as completed but new episodes are coming, restore to watching
       const existing = useStore.getState().shows[showId];
-      if (existing?.status === 'completed' && hasUpcoming) {
+      // If already tracked as completed but new episodes are coming, restore to watching
+      if (existing?.status === 'completed' && !!d.next_episode_to_air) {
         setShowStatus(showId, 'watching');
       }
+      // Don't register the show until the user logs an episode — addShow is called in logEpisodeAndCheck
     }).finally(() => setLoading(false));
   }, [showId]);
 
