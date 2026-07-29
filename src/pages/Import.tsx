@@ -267,7 +267,9 @@ export function Import() {
               episode_run_time: details.episode_run_time ?? [],
               watchedEpisodes: [],
               status: 'watching',
-            };
+              _totalEpisodes: details.number_of_episodes ?? 0,
+              _hasUpcoming: !!details.next_episode_to_air,
+            } as TrackedShow & { _totalEpisodes: number; _hasUpcoming: boolean };
             showCache.set(tvdbId, trackedShow);
             // Register show in store if not already there
             store.addShow(trackedShow);
@@ -306,6 +308,16 @@ export function Import() {
       setResults([...resultList]);
       setProgress((p) => p + 1);
       await sleep(50);
+    }
+
+    // Auto-complete shows where all episodes are watched and no upcoming episodes
+    for (const [, show] of showCache) {
+      if (!show) continue;
+      const ext = show as TrackedShow & { _totalEpisodes?: number; _hasUpcoming?: boolean };
+      const watched = useStore.getState().shows[ext.id]?.watchedEpisodes.length ?? 0;
+      if (!ext._hasUpcoming && (ext._totalEpisodes ?? 0) > 0 && watched >= ext._totalEpisodes!) {
+        store.setShowStatus(ext.id, 'completed');
+      }
     }
 
     setRunning(false);
