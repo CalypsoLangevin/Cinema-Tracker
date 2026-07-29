@@ -56,29 +56,37 @@ export async function loadFromRepo(token: string, repo: string): Promise<Record<
   return JSON.parse(text);
 }
 
+async function getCurrentSha(token: string, repo: string): Promise<string | undefined> {
+  const res = await ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`);
+  if (res.status === 404) return undefined;
+  if (!res.ok) throw new Error(`GitHub ${res.status}`);
+  return (await res.json()).sha as string;
+}
+
 export async function saveToRepo(token: string, repo: string, state: unknown): Promise<void> {
   const content = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
 
-  // Get current SHA (needed for updates)
-  const getRes = await ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`);
-  let sha: string | undefined;
-  if (getRes.ok) {
-    sha = (await getRes.json()).sha;
-  } else if (getRes.status !== 404) {
-    throw new Error(`GitHub ${getRes.status}`);
+  const putOnce = async (sha: string | undefined) => {
+    const body: Record<string, unknown> = { message: 'Update Queued data', content };
+    if (sha) body.sha = sha;
+    return ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  };
+
+  let sha = await getCurrentSha(token, repo);
+  let res = await putOnce(sha);
+
+  // 422 means SHA was wrong (race condition) — re-fetch and retry once
+  if (res.status === 422) {
+    sha = await getCurrentSha(token, repo);
+    res = await putOnce(sha);
   }
 
-  const body: Record<string, unknown> = { message: 'Update Queued data', content };
-  if (sha) body.sha = sha;
-
-  const putRes = await ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!putRes.ok) {
-    const err = await putRes.json().catch(() => ({}));
-    throw new Error(`GitHub ${putRes.status}: ${(err as { message?: string }).message ?? ''}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`GitHub ${res.status}: ${(err as { message?: string }).message ?? ''}`);
   }
 }
