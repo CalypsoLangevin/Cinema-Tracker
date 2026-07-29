@@ -7,17 +7,6 @@ import {
 } from './github-storage';
 import { useStore } from '../store';
 
-function waitForRehydration(): Promise<void> {
-  return new Promise((resolve) => {
-    if (useStore.getState()._rehydrated) { resolve(); return; }
-    const unsub = useStore.subscribe((s) => {
-      if (s._rehydrated) { unsub(); resolve(); }
-    });
-    // Safety timeout — if persist never fires, unblock after 500ms
-    setTimeout(() => { unsub(); resolve(); }, 500);
-  });
-}
-
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface AuthState {
@@ -48,16 +37,9 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-function currentStoreSnapshot() {
+function snapshot() {
   const s = useStore.getState();
-  return {
-    movies: s.movies,
-    shows: s.shows,
-    watchlist: s.watchlist,
-    favorites: s.favorites,
-    hiddenShows: s.hiddenShows,
-    theme: s.theme,
-  };
+  return { movies: s.movies, shows: s.shows, watchlist: s.watchlist, favorites: s.favorites, hiddenShows: s.hiddenShows, theme: s.theme };
 }
 
 function applyState(data: Record<string, unknown>) {
@@ -71,6 +53,16 @@ function applyState(data: Record<string, unknown>) {
   });
 }
 
+function hasData(data: Record<string, unknown> | null): boolean {
+  if (!data) return false;
+  return (
+    Object.keys(data.movies as object ?? {}).length > 0 ||
+    Object.keys(data.shows as object ?? {}).length > 0 ||
+    ((data.favorites as unknown[]) ?? []).length > 0 ||
+    ((data.watchlist as unknown[]) ?? []).length > 0
+  );
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [repo, setRepo] = useState<string | null>(null);
@@ -79,30 +71,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
 
-  // Refs so callbacks always see the latest token/repo without re-registering
   const tokenRef = useRef<string | null>(null);
   const repoRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
-  const suppressSyncUntilRef = useRef(0);
+  // After loading from GitHub, suppress syncs briefly so applyState doesn't
+  // immediately trigger a save back (which would race with the just-loaded state)
+  const suppressUntilRef = useRef(0);
 
   const doSave = useCallback(async () => {
-    const tok = tokenRef.current ?? loadToken();
-    const rep = repoRef.current ?? loadRepo();
-    if (!tok || !rep) { console.log('[sync] skipped — no session'); return; }
-    // Wait if already saving rather than skipping
-    if (savingRef.current) {
-      await new Promise(r => setTimeout(r, 2500));
-    }
+    const tok = tokenRef.current;
+    const rep = repoRef.current;
+    if (!tok || !rep) return;
+    if (savingRef.current) return;
     savingRef.current = true;
     setSyncStatus('saving');
     try {
-      console.log('[sync] saving…');
-      await saveToRepo(tok, rep, currentStoreSnapshot());
-      console.log('[sync] saved ok');
+      await saveToRepo(tok, rep, snapshot());
       setSyncStatus('saved');
     } catch (e) {
-      console.error('[sync] save failed:', e);
+      console.error('[sync] failed:', e);
       setSyncStatus('error');
       throw e;
     } finally {
@@ -111,26 +99,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const scheduleSync = useCallback(() => {
+    if (Date.now() < suppressUntilRef.current) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doSave(), 2000);
   }, [doSave]);
 
   const forceSync = useCallback(async () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    suppressUntilRef.current = 0;
     await doSave();
   }, [doSave]);
 
   const login = useCallback(async (tok: string, rep: string) => {
     setError(null);
     setLoading(true);
-    const tokenOk = await validateToken(tok);
-    if (!tokenOk) {
+    if (!await validateToken(tok)) {
       setError('Invalid token — make sure it has the repo scope.');
       setLoading(false);
       return;
     }
-    const repoOk = await validateRepo(tok, rep);
-    if (!repoOk) {
+    if (!await validateRepo(tok, rep)) {
       setError(`Repo "${rep}" not found or not accessible with this token.`);
       setLoading(false);
       return;
@@ -141,11 +129,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     repoRef.current = rep;
     try {
       const remote = await loadFromRepo(tok, rep);
-      const movies = Object.keys(remote?.movies as object ?? {}).length;
-      const shows = Object.keys(remote?.shows as object ?? {}).length;
-      if (remote && (movies > 0 || shows > 0)) {
-        suppressSyncUntilRef.current = Date.now() + 3000;
-        applyState(remote);
+      if (hasData(remote)) {
+        suppressUntilRef.current = Date.now() + 3000;
+        applyState(remote!);
+        console.log('[auth] login — applied remote data');
       }
       setSyncStatus('saved');
     } catch (e) {
@@ -165,10 +152,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setRepo(null);
     setSyncStatus('idle');
-    // Do NOT wipe the store — data stays in GitHub, loads back on next login
   }, []);
 
-  // On mount: restore session and load from repo
+  // On mount: restore session and load from GitHub
   useEffect(() => {
     const tok = loadToken();
     const rep = loadRepo();
@@ -176,29 +162,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     tokenRef.current = tok;
     repoRef.current = rep;
     (async () => {
-      // Wait for Zustand to finish rehydrating from localStorage before we
-      // overwrite with GitHub data — otherwise persist stomps our applyState
-      await waitForRehydration();
-
-      const tokenOk = await validateToken(tok);
-      if (!tokenOk) {
+      if (!await validateToken(tok)) {
         clearToken(); clearRepo();
         tokenRef.current = null; repoRef.current = null;
         setLoading(false);
         return;
       }
       try {
-        console.log('[auth] loading from repo…');
+        console.log('[auth] loading from GitHub…');
         const remote = await loadFromRepo(tok, rep);
         const movies = Object.keys(remote?.movies as object ?? {}).length;
         const shows = Object.keys(remote?.shows as object ?? {}).length;
-        if (remote && (movies > 0 || shows > 0)) {
-          console.log(`[auth] loaded ok — ${movies} movies, ${shows} shows`);
-          // Suppress sync for 3s so applyState doesn't immediately trigger a save
-          suppressSyncUntilRef.current = Date.now() + 3000;
-          applyState(remote);
-        } else {
-          console.log(`[auth] remote is empty (${movies} movies, ${shows} shows) — keeping local data`);
+        console.log(`[auth] remote: ${movies} movies, ${shows} shows`);
+        if (hasData(remote)) {
+          suppressUntilRef.current = Date.now() + 3000;
+          applyState(remote!);
         }
         setSyncStatus('saved');
         setLoadError(null);
@@ -214,21 +192,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  // Sync on every store change (debounced) — suppressed briefly after load
+  // Sync on every store change (debounced 2s)
   useEffect(() => {
     if (!token || !repo) return;
-    const unsub = useStore.subscribe(() => {
-      if (Date.now() < suppressSyncUntilRef.current) return;
-      scheduleSync();
-    });
-    return unsub;
+    return useStore.subscribe(() => scheduleSync());
   }, [token, repo, scheduleSync]);
 
-  // Periodic sync every 30 seconds as a safety net
+  // Periodic sync every 30s as safety net
   useEffect(() => {
     if (!token || !repo) return;
-    const interval = setInterval(() => doSave(), 30_000);
-    return () => clearInterval(interval);
+    const id = setInterval(() => doSave(), 30_000);
+    return () => clearInterval(id);
   }, [token, repo, doSave]);
 
   return (
