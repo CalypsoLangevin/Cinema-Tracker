@@ -50,11 +50,10 @@ function applyState(data: Record<string, unknown>) {
 const BASE = 'https://api.themoviedb.org/3';
 const KEY = import.meta.env.VITE_TMDB_API_KEY ?? '';
 
-async function fixCompletedShows(doSave: () => Promise<void>) {
+async function fixCompletedShows() {
   const shows = useStore.getState().shows;
   const watchingIds = Object.keys(shows).map(Number).filter((id) => shows[id].status === 'watching');
   if (!watchingIds.length) return;
-  let anyChanged = false;
   for (const id of watchingIds) {
     const tracked = shows[id];
     try {
@@ -67,16 +66,13 @@ async function fixCompletedShows(doSave: () => Promise<void>) {
       const watched = tracked.watchedEpisodes.length;
       if (!details.next_episode_to_air && totalEps > 0 && watched >= totalEps) {
         useStore.getState().setShowStatus(id, 'completed');
-        anyChanged = true;
       }
       await new Promise((r) => setTimeout(r, 150));
     } catch {
       // skip on network error
     }
   }
-  if (anyChanged) {
-    try { await doSave(); } catch { /* best-effort */ }
-  }
+  // No explicit doSave here — setShowStatus calls above trigger the debounced sync naturally
 }
 
 function hasData(data: Record<string, unknown> | null): boolean {
@@ -105,10 +101,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const doSave = useCallback(async () => {
     const tok = tokenRef.current;
     const rep = repoRef.current;
-    if (!tok || !rep) return;
+    if (!tok || !rep) { console.warn('[sync] skipped — no token/repo'); return; }
+    console.log('[sync] saving to', rep);
     setSyncStatus('saving');
     try {
       await saveToRepo(tok, rep, snapshot());
+      console.log('[sync] saved ok');
       setSyncStatus('saved');
     } catch (e) {
       console.error('[sync] failed:', e);
@@ -160,7 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const remote = await loadFromRepo(tok, rep);
       if (hasData(remote)) {
         applyState(remote!);
-        fixCompletedShows(doSave);
+        fixCompletedShows();
       }
       setSyncStatus('saved');
     } catch (e) {
@@ -201,7 +199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log(`[auth] remote: ${movies} movies, ${shows} shows`);
         if (hasData(remote)) {
           applyState(remote!);
-          fixCompletedShows(doSave);
+          fixCompletedShows();
         }
         setSyncStatus('saved');
         setLoadError(null);
