@@ -50,10 +50,11 @@ function applyState(data: Record<string, unknown>) {
 const BASE = 'https://api.themoviedb.org/3';
 const KEY = import.meta.env.VITE_TMDB_API_KEY ?? '';
 
-async function fixCompletedShows(doSave: () => Promise<void>) {
+async function fixCompletedShows(syncPausedRef: React.MutableRefObject<boolean>, doSave: () => Promise<void>) {
   const shows = useStore.getState().shows;
   const watchingIds = Object.keys(shows).map(Number).filter((id) => shows[id].status === 'watching');
   if (!watchingIds.length) return;
+  syncPausedRef.current = true;
   let anyChanged = false;
   for (const id of watchingIds) {
     const tracked = shows[id];
@@ -74,6 +75,7 @@ async function fixCompletedShows(doSave: () => Promise<void>) {
       // skip on network error
     }
   }
+  syncPausedRef.current = false;
   if (anyChanged) {
     try { await doSave(); } catch { /* best-effort */ }
   }
@@ -157,12 +159,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     saveRepo(rep);
     tokenRef.current = tok;
     repoRef.current = rep;
+    // Clear any previous session's data before loading the new repo
+    applyState({ movies: {}, shows: {}, watchlist: [], favorites: [], hiddenShows: [], theme: useStore.getState().theme });
     try {
       const remote = await loadFromRepo(tok, rep);
       if (hasData(remote)) {
-        suppressUntilRef.current = Date.now() + 60000;
+        suppressUntilRef.current = Date.now() + 3000;
         applyState(remote!);
-        fixCompletedShows(doSave);
+        fixCompletedShows(syncPausedRef, doSave);
       }
       setSyncStatus('saved');
     } catch (e) {
@@ -202,10 +206,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const shows = Object.keys(remote?.shows as object ?? {}).length;
         console.log(`[auth] remote: ${movies} movies, ${shows} shows`);
         if (hasData(remote)) {
-          suppressUntilRef.current = Date.now() + 60000;
+          suppressUntilRef.current = Date.now() + 3000;
           applyState(remote!);
-          // After applying, silently fix any shows that are 100% watched but still marked 'watching'
-          fixCompletedShows(doSave);
+          fixCompletedShows(syncPausedRef, doSave);
         }
         setSyncStatus('saved');
         setLoadError(null);
