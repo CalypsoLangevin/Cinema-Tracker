@@ -107,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const forceSync = useCallback(async () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     suppressUntilRef.current = 0;
+    savingRef.current = false; // reset lock in case a previous save got stuck
     await doSave();
   }, [doSave]);
 

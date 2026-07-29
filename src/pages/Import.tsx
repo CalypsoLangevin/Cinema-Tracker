@@ -112,21 +112,26 @@ export function Import() {
   const [total, setTotal] = useState(0);
   const [done, setDone] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [syncError, setSyncError] = useState<string>('');
   const fileRef = useRef<HTMLInputElement>(null);
   const store = useStore();
   const { forceSync, token, repo } = useAuth();
 
   async function syncToGithub() {
     if (!token || !repo) {
+      setSyncError('Not logged in');
       setSyncStatus('error');
       return;
     }
     setSyncStatus('saving');
+    setSyncError('');
     try {
       await forceSync();
       setSyncStatus('saved');
     } catch (e) {
-      console.error('[import] sync failed:', e);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[import] sync failed:', msg);
+      setSyncError(msg);
       setSyncStatus('error');
     }
   }
@@ -356,7 +361,7 @@ export function Import() {
               <div className="flex items-center gap-2 text-sm">
                 {syncStatus === 'saving' && <><Loader size={14} className="animate-spin text-zinc-400" /><span className="text-zinc-400">Saving to GitHub…</span></>}
                 {syncStatus === 'saved' && <><Cloud size={14} className="text-green-400" /><span className="text-green-400">Saved to GitHub</span></>}
-                {syncStatus === 'error' && <><CloudOff size={14} className="text-red-400" /><span className="text-red-400">GitHub save failed — retry</span><button onClick={syncToGithub} className="underline text-red-400 hover:text-red-300">Retry</button></>}
+                {syncStatus === 'error' && <><CloudOff size={14} className="text-red-400" /><span className="text-red-400">GitHub save failed{syncError ? `: ${syncError}` : ''}</span><button onClick={syncToGithub} className="underline text-red-400 hover:text-red-300 ml-1">Retry</button></>}
               </div>
             </div>
           )}
