@@ -135,7 +135,8 @@ export function ShowDetail() {
     logEpisode(showId, { seasonNumber: sn, episodeNumber: en }, date);
     if (!detail) return;
     const totalEps = detail.seasons.reduce((acc, s) => acc + (s.season_number > 0 ? s.episode_count : 0), 0);
-    const watchedAfter = (tracked?.watchedEpisodes.length ?? 0) + 1;
+    // Read from store after logEpisode has updated it
+    const watchedAfter = useStore.getState().shows[showId]?.watchedEpisodes.length ?? 0;
     if (watchedAfter >= totalEps) {
       removeFromWatchlist(showId, 'tv');
       // Only auto-complete if no upcoming episodes
