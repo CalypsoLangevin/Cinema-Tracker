@@ -227,6 +227,12 @@ export const useStore = create<State>()(
     }),
     {
       name: 'queued-store',
+      // Never persist _rehydrated — it must start false on every load
+      partialize: (state) => {
+        const { _rehydrated, ...rest } = state as typeof state & { _rehydrated: boolean };
+        void _rehydrated;
+        return rest;
+      },
       onRehydrateStorage: () => () => {
         useStore.setState({ _rehydrated: true });
       },

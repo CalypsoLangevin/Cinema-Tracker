@@ -84,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const repoRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
+  const suppressSyncUntilRef = useRef(0);
 
   const doSave = useCallback(async () => {
     const tok = tokenRef.current ?? loadToken();
@@ -140,7 +141,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     repoRef.current = rep;
     try {
       const remote = await loadFromRepo(tok, rep);
-      if (remote) applyState(remote);
+      const movies = Object.keys(remote?.movies as object ?? {}).length;
+      const shows = Object.keys(remote?.shows as object ?? {}).length;
+      if (remote && (movies > 0 || shows > 0)) {
+        suppressSyncUntilRef.current = Date.now() + 3000;
+        applyState(remote);
+      }
       setSyncStatus('saved');
     } catch (e) {
       console.error('[auth] load on login failed:', e);
@@ -184,13 +190,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         console.log('[auth] loading from repo…');
         const remote = await loadFromRepo(tok, rep);
-        if (remote) {
-          const movies = Object.keys(remote.movies as object ?? {}).length;
-          const shows = Object.keys(remote.shows as object ?? {}).length;
+        const movies = Object.keys(remote?.movies as object ?? {}).length;
+        const shows = Object.keys(remote?.shows as object ?? {}).length;
+        if (remote && (movies > 0 || shows > 0)) {
           console.log(`[auth] loaded ok — ${movies} movies, ${shows} shows`);
+          // Suppress sync for 3s so applyState doesn't immediately trigger a save
+          suppressSyncUntilRef.current = Date.now() + 3000;
           applyState(remote);
         } else {
-          console.log('[auth] file not found yet (null)');
+          console.log(`[auth] remote is empty (${movies} movies, ${shows} shows) — keeping local data`);
         }
         setSyncStatus('saved');
         setLoadError(null);
@@ -206,10 +214,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  // Sync on every store change (debounced)
+  // Sync on every store change (debounced) — suppressed briefly after load
   useEffect(() => {
     if (!token || !repo) return;
-    const unsub = useStore.subscribe(() => scheduleSync());
+    const unsub = useStore.subscribe(() => {
+      if (Date.now() < suppressSyncUntilRef.current) return;
+      scheduleSync();
+    });
     return unsub;
   }, [token, repo, scheduleSync]);
 
