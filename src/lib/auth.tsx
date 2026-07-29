@@ -47,6 +47,38 @@ function applyState(data: Record<string, unknown>) {
   });
 }
 
+const BASE = 'https://api.themoviedb.org/3';
+const KEY = import.meta.env.VITE_TMDB_API_KEY ?? '';
+
+async function fixCompletedShows(doSave: () => Promise<void>) {
+  const shows = useStore.getState().shows;
+  const watchingIds = Object.keys(shows).map(Number).filter((id) => shows[id].status === 'watching');
+  if (!watchingIds.length) return;
+  let anyChanged = false;
+  for (const id of watchingIds) {
+    const tracked = shows[id];
+    try {
+      const res = await fetch(`${BASE}/tv/${id}?api_key=${KEY}`);
+      if (!res.ok) continue;
+      const details = await res.json();
+      const totalEps = (details.seasons as Array<{ season_number: number; episode_count: number }>)
+        .filter((s: { season_number: number }) => s.season_number > 0)
+        .reduce((acc: number, s: { episode_count: number }) => acc + s.episode_count, 0);
+      const watched = tracked.watchedEpisodes.length;
+      if (!details.next_episode_to_air && totalEps > 0 && watched >= totalEps) {
+        useStore.getState().setShowStatus(id, 'completed');
+        anyChanged = true;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    } catch {
+      // skip on network error
+    }
+  }
+  if (anyChanged) {
+    try { await doSave(); } catch { /* best-effort */ }
+  }
+}
+
 function hasData(data: Record<string, unknown> | null): boolean {
   if (!data) return false;
   return (
@@ -128,8 +160,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const remote = await loadFromRepo(tok, rep);
       if (hasData(remote)) {
-        suppressUntilRef.current = Date.now() + 3000;
+        suppressUntilRef.current = Date.now() + 60000;
         applyState(remote!);
+        fixCompletedShows(doSave);
       }
       setSyncStatus('saved');
     } catch (e) {
@@ -169,8 +202,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const shows = Object.keys(remote?.shows as object ?? {}).length;
         console.log(`[auth] remote: ${movies} movies, ${shows} shows`);
         if (hasData(remote)) {
-          suppressUntilRef.current = Date.now() + 3000;
+          suppressUntilRef.current = Date.now() + 60000;
           applyState(remote!);
+          // After applying, silently fix any shows that are 100% watched but still marked 'watching'
+          fixCompletedShows(doSave);
         }
         setSyncStatus('saved');
         setLoadError(null);
