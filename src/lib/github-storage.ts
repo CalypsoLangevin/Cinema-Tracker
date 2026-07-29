@@ -56,37 +56,62 @@ export async function loadFromRepo(token: string, repo: string): Promise<Record<
   return JSON.parse(text);
 }
 
-async function getCurrentSha(token: string, repo: string): Promise<string | undefined> {
-  const res = await ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`);
-  if (res.status === 404) return undefined;
-  if (!res.ok) throw new Error(`GitHub ${res.status}`);
-  return (await res.json()).sha as string;
-}
-
 export async function saveToRepo(token: string, repo: string, state: unknown): Promise<void> {
-  const content = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+  const json = JSON.stringify(state);
+  // Use UTF-8 safe base64 encoding
+  const content = btoa(unescape(encodeURIComponent(json)));
 
-  const putOnce = async (sha: string | undefined) => {
-    const body: Record<string, unknown> = { message: 'Update Queued data', content };
-    if (sha) body.sha = sha;
-    return ghFetch(token, `/repos/${repo}/contents/${FILE_PATH}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  };
-
-  let sha = await getCurrentSha(token, repo);
-  let res = await putOnce(sha);
-
-  // 422 means SHA was wrong (race condition) — re-fetch and retry once
-  if (res.status === 422) {
-    sha = await getCurrentSha(token, repo);
-    res = await putOnce(sha);
+  // Step 1: create a blob (no size limit)
+  const blobRes = await ghFetch(token, `/repos/${repo}/git/blobs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, encoding: 'base64' }),
+  });
+  if (!blobRes.ok) {
+    const e = await blobRes.json().catch(() => ({}));
+    throw new Error(`GitHub blob ${blobRes.status}: ${(e as { message?: string }).message ?? ''}`);
   }
+  const { sha: blobSha } = await blobRes.json();
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(`GitHub ${res.status}: ${(err as { message?: string }).message ?? ''}`);
+  // Step 2: get current branch tip
+  const refRes = await ghFetch(token, `/repos/${repo}/git/ref/heads/main`);
+  if (!refRes.ok) throw new Error(`GitHub ref ${refRes.status}`);
+  const { object: { sha: commitSha } } = await refRes.json();
+
+  // Step 3: get current tree SHA
+  const commitRes = await ghFetch(token, `/repos/${repo}/git/commits/${commitSha}`);
+  if (!commitRes.ok) throw new Error(`GitHub commit ${commitRes.status}`);
+  const { tree: { sha: treeSha } } = await commitRes.json();
+
+  // Step 4: create new tree with our file
+  const treeRes = await ghFetch(token, `/repos/${repo}/git/trees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      base_tree: treeSha,
+      tree: [{ path: FILE_PATH, mode: '100644', type: 'blob', sha: blobSha }],
+    }),
+  });
+  if (!treeRes.ok) throw new Error(`GitHub tree ${treeRes.status}`);
+  const { sha: newTreeSha } = await treeRes.json();
+
+  // Step 5: create commit
+  const newCommitRes = await ghFetch(token, `/repos/${repo}/git/commits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'Update Queued data', tree: newTreeSha, parents: [commitSha] }),
+  });
+  if (!newCommitRes.ok) throw new Error(`GitHub newcommit ${newCommitRes.status}`);
+  const { sha: newCommitSha } = await newCommitRes.json();
+
+  // Step 6: update branch ref
+  const updateRes = await ghFetch(token, `/repos/${repo}/git/refs/heads/main`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sha: newCommitSha }),
+  });
+  if (!updateRes.ok) {
+    const e = await updateRes.json().catch(() => ({}));
+    throw new Error(`GitHub ref update ${updateRes.status}: ${(e as { message?: string }).message ?? ''}`);
   }
 }
