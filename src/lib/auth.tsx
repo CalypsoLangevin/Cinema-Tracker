@@ -101,7 +101,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const repoRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncPausedRef = useRef(false);
-  const suppressUntilRef = useRef(0);
 
   const doSave = useCallback(async () => {
     const tok = tokenRef.current;
@@ -120,14 +119,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const scheduleSync = useCallback(() => {
     if (syncPausedRef.current) return;
-    if (Date.now() < suppressUntilRef.current) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doSave(), 2000);
   }, [doSave]);
 
   const forceSync = useCallback(async () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    suppressUntilRef.current = 0;
     await doSave();
   }, [doSave]);
 
@@ -162,7 +159,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const remote = await loadFromRepo(tok, rep);
       if (hasData(remote)) {
-        suppressUntilRef.current = Date.now() + 3000;
         applyState(remote!);
         fixCompletedShows(doSave);
       }
@@ -204,7 +200,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const shows = Object.keys(remote?.shows as object ?? {}).length;
         console.log(`[auth] remote: ${movies} movies, ${shows} shows`);
         if (hasData(remote)) {
-          suppressUntilRef.current = Date.now() + 3000;
           applyState(remote!);
           fixCompletedShows(doSave);
         }
