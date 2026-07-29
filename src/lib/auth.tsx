@@ -19,23 +19,17 @@ interface AuthState {
   login: (token: string, repo: string) => Promise<void>;
   logout: () => void;
   forceSync: () => Promise<void>;
+  pauseSync: () => void;
+  resumeSync: () => void;
 }
 
 const AuthContext = createContext<AuthState>({
-  token: null,
-  repo: null,
-  loading: true,
-  error: null,
-  loadError: null,
-  syncStatus: 'idle',
-  login: async () => {},
-  logout: () => {},
-  forceSync: async () => {},
+  token: null, repo: null, loading: true, error: null, loadError: null, syncStatus: 'idle',
+  login: async () => {}, logout: () => {}, forceSync: async () => {},
+  pauseSync: () => {}, resumeSync: () => {},
 });
 
-export function useAuth() {
-  return useContext(AuthContext);
-}
+export function useAuth() { return useContext(AuthContext); }
 
 function snapshot() {
   const s = useStore.getState();
@@ -74,17 +68,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const tokenRef = useRef<string | null>(null);
   const repoRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const savingRef = useRef(false);
-  // After loading from GitHub, suppress syncs briefly so applyState doesn't
-  // immediately trigger a save back (which would race with the just-loaded state)
+  const syncPausedRef = useRef(false);
   const suppressUntilRef = useRef(0);
 
   const doSave = useCallback(async () => {
     const tok = tokenRef.current;
     const rep = repoRef.current;
     if (!tok || !rep) return;
-    if (savingRef.current) return;
-    savingRef.current = true;
     setSyncStatus('saving');
     try {
       await saveToRepo(tok, rep, snapshot());
@@ -93,12 +83,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('[sync] failed:', e);
       setSyncStatus('error');
       throw e;
-    } finally {
-      savingRef.current = false;
     }
   }, []);
 
   const scheduleSync = useCallback(() => {
+    if (syncPausedRef.current) return;
     if (Date.now() < suppressUntilRef.current) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doSave(), 2000);
@@ -107,9 +96,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const forceSync = useCallback(async () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     suppressUntilRef.current = 0;
-    savingRef.current = false; // reset lock in case a previous save got stuck
     await doSave();
   }, [doSave]);
+
+  const pauseSync = useCallback(() => {
+    syncPausedRef.current = true;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
+
+  const resumeSync = useCallback(() => {
+    syncPausedRef.current = false;
+  }, []);
 
   const login = useCallback(async (tok: string, rep: string) => {
     setError(null);
@@ -133,7 +130,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (hasData(remote)) {
         suppressUntilRef.current = Date.now() + 3000;
         applyState(remote!);
-        console.log('[auth] login — applied remote data');
       }
       setSyncStatus('saved');
     } catch (e) {
@@ -146,12 +142,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    clearToken();
-    clearRepo();
-    tokenRef.current = null;
-    repoRef.current = null;
-    setToken(null);
-    setRepo(null);
+    clearToken(); clearRepo();
+    tokenRef.current = null; repoRef.current = null;
+    setToken(null); setRepo(null);
     setSyncStatus('idle');
   }, []);
 
@@ -202,12 +195,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Periodic sync every 30s as safety net
   useEffect(() => {
     if (!token || !repo) return;
-    const id = setInterval(() => doSave(), 30_000);
+    const id = setInterval(() => {
+      if (!syncPausedRef.current) doSave();
+    }, 30_000);
     return () => clearInterval(id);
   }, [token, repo, doSave]);
 
   return (
-    <AuthContext.Provider value={{ token, repo, loading, error, loadError, syncStatus, login, logout, forceSync }}>
+    <AuthContext.Provider value={{ token, repo, loading, error, loadError, syncStatus, login, logout, forceSync, pauseSync, resumeSync }}>
       {children}
     </AuthContext.Provider>
   );

@@ -115,7 +115,7 @@ export function Import() {
   const [syncError, setSyncError] = useState<string>('');
   const fileRef = useRef<HTMLInputElement>(null);
   const store = useStore();
-  const { forceSync, token, repo } = useAuth();
+  const { forceSync, pauseSync, resumeSync, token, repo } = useAuth();
 
   async function syncToGithub() {
     if (!token || !repo) {
@@ -146,11 +146,13 @@ export function Import() {
       return;
     }
 
+    pauseSync();
     if (type === 'movies') {
       await importMovies(text);
     } else {
       await importEpisodes(text);
     }
+    resumeSync();
   }
 
   async function importMovies(text: string) {
