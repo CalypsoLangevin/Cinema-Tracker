@@ -50,11 +50,10 @@ function applyState(data: Record<string, unknown>) {
 const BASE = 'https://api.themoviedb.org/3';
 const KEY = import.meta.env.VITE_TMDB_API_KEY ?? '';
 
-async function fixCompletedShows(syncPausedRef: React.MutableRefObject<boolean>, doSave: () => Promise<void>) {
+async function fixCompletedShows(doSave: () => Promise<void>) {
   const shows = useStore.getState().shows;
   const watchingIds = Object.keys(shows).map(Number).filter((id) => shows[id].status === 'watching');
   if (!watchingIds.length) return;
-  syncPausedRef.current = true;
   let anyChanged = false;
   for (const id of watchingIds) {
     const tracked = shows[id];
@@ -75,7 +74,6 @@ async function fixCompletedShows(syncPausedRef: React.MutableRefObject<boolean>,
       // skip on network error
     }
   }
-  syncPausedRef.current = false;
   if (anyChanged) {
     try { await doSave(); } catch { /* best-effort */ }
   }
@@ -166,7 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (hasData(remote)) {
         suppressUntilRef.current = Date.now() + 3000;
         applyState(remote!);
-        fixCompletedShows(syncPausedRef, doSave);
+        fixCompletedShows(doSave);
       }
       setSyncStatus('saved');
     } catch (e) {
@@ -208,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (hasData(remote)) {
           suppressUntilRef.current = Date.now() + 3000;
           applyState(remote!);
-          fixCompletedShows(syncPausedRef, doSave);
+          fixCompletedShows(doSave);
         }
         setSyncStatus('saved');
         setLoadError(null);
