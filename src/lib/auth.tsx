@@ -97,21 +97,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const repoRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncPausedRef = useRef(false);
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
 
   const doSave = useCallback(async () => {
     const tok = tokenRef.current;
     const rep = repoRef.current;
-    if (!tok || !rep) { console.warn('[sync] skipped — no token/repo'); return; }
-    console.log('[sync] saving to', rep);
+    if (!tok || !rep) return;
+    // If already saving, queue one more save for when this one finishes
+    if (savingRef.current) { pendingSaveRef.current = true; return; }
+    savingRef.current = true;
     setSyncStatus('saving');
     try {
       await saveToRepo(tok, rep, snapshot());
-      console.log('[sync] saved ok');
       setSyncStatus('saved');
     } catch (e) {
       console.error('[sync] failed:', e);
       setSyncStatus('error');
-      throw e;
+    } finally {
+      savingRef.current = false;
+      if (pendingSaveRef.current) {
+        pendingSaveRef.current = false;
+        doSave();
+      }
     }
   }, []);
 
