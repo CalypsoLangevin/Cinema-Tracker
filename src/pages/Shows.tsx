@@ -156,7 +156,7 @@ function ShowRow({
         )}
         {onHide && (
           <button
-            onClick={(e) => { e.preventDefault(); handleHide(); }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleHide(); }}
             className="hidden sm:flex items-center justify-center p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-700 transition shrink-0"
             title="Hide from list"
           >
