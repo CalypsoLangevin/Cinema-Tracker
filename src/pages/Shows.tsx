@@ -110,9 +110,9 @@ function ShowRow({
 
   return (
     <div className="relative overflow-hidden">
-      {/* Hide button revealed behind the row */}
+      {/* Hide button revealed behind the row — mobile swipe only */}
       <div
-        className="absolute inset-y-0 right-0 flex items-center justify-center bg-zinc-700 text-zinc-300 hover:bg-zinc-600 transition-colors cursor-pointer"
+        className="sm:hidden absolute inset-y-0 right-0 flex items-center justify-center bg-zinc-700 text-zinc-300 hover:bg-zinc-600 transition-colors cursor-pointer"
         style={{ width: THRESHOLD }}
         onClick={handleHide}
       >
