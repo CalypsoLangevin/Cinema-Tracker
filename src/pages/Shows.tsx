@@ -15,7 +15,11 @@ interface NextEp {
   name: string;
   airDate: string | null;
 }
-type UpcomingMap = Record<number, NextEp | null>;
+interface ShowInfo {
+  upcoming: NextEp | null;
+  lastAired: { season: number; episode: number } | null;
+}
+type UpcomingMap = Record<number, ShowInfo | undefined>;
 
 function useUpcoming(shows: TrackedShow[]) {
   const [map, setMap] = useState<UpcomingMap>({});
@@ -30,11 +34,17 @@ function useUpcoming(shows: TrackedShow[]) {
           try {
             const data = await tmdb.upcomingEpisode(show.id);
             const next = data.next_episode_to_air;
-            results[show.id] = next
-              ? { season: next.season_number, episode: next.episode_number, name: next.name, airDate: next.air_date }
-              : null;
+            const last = data.last_episode_to_air;
+            results[show.id] = {
+              upcoming: next
+                ? { season: next.season_number, episode: next.episode_number, name: next.name, airDate: next.air_date }
+                : null,
+              lastAired: last
+                ? { season: last.season_number, episode: last.episode_number }
+                : null,
+            };
           } catch {
-            results[show.id] = null;
+            results[show.id] = undefined;
           }
         })
       );
@@ -47,7 +57,11 @@ function useUpcoming(shows: TrackedShow[]) {
 }
 
 // ─── Next unwatched episode ───────────────────────────────────────────────────
-function nextToWatch(show: TrackedShow): { season: number; episode: number } | null {
+// lastAired caps the result — never suggest an episode beyond what TMDB says has aired
+function nextToWatch(
+  show: TrackedShow,
+  lastAired?: { season: number; episode: number } | null,
+): { season: number; episode: number } | null {
   const watched = new Set(show.watchedEpisodes.map((e) => `${e.seasonNumber}x${e.episodeNumber}`));
   if (!watched.size) return { season: 1, episode: 1 };
   const sorted = [...show.watchedEpisodes].sort((a, b) =>
@@ -55,7 +69,15 @@ function nextToWatch(show: TrackedShow): { season: number; episode: number } | n
   );
   const last = sorted[sorted.length - 1];
   const nextEp = { season: last.seasonNumber, episode: last.episodeNumber + 1 };
-  return watched.has(`${nextEp.season}x${nextEp.episode}`) ? null : nextEp;
+  if (watched.has(`${nextEp.season}x${nextEp.episode}`)) return null;
+  // If TMDB tells us the last aired episode, don't suggest anything beyond it
+  if (lastAired) {
+    const beyondLastAired =
+      nextEp.season > lastAired.season ||
+      (nextEp.season === lastAired.season && nextEp.episode > lastAired.episode);
+    if (beyondLastAired) return null;
+  }
+  return nextEp;
 }
 
 // ─── Swipeable row ────────────────────────────────────────────────────────────
@@ -194,9 +216,11 @@ export function Shows() {
     [...watching]
       .filter((s) => {
         if (hiddenShows.includes(s.id)) return false;
-        // Hide if user is caught up: no unwatched released episode, but an upcoming one exists
-        const caughtUp = nextToWatch(s) === null && upcomingMap[s.id] !== undefined;
-        return !caughtUp;
+        const info = upcomingMap[s.id];
+        const next = nextToWatch(s, info?.lastAired);
+        // Hide if caught up: nothing left to watch among aired episodes
+        if (next === null && info !== undefined) return false;
+        return true;
       })
       .sort((a, b) => {
         const latestA = a.watchedEpisodes.length ? Math.max(...a.watchedEpisodes.map((e) => new Date(e.watchedAt).getTime())) : 0;
@@ -216,10 +240,10 @@ export function Shows() {
 
   const upcomingList = useMemo(() =>
     watching
-      .filter((s) => upcomingMap[s.id] != null)
+      .filter((s) => upcomingMap[s.id]?.upcoming != null)
       .sort((a, b) => {
-        const da = upcomingMap[a.id]?.airDate ?? '9999';
-        const db = upcomingMap[b.id]?.airDate ?? '9999';
+        const da = upcomingMap[a.id]?.upcoming?.airDate ?? '9999';
+        const db = upcomingMap[b.id]?.upcoming?.airDate ?? '9999';
         return da < db ? -1 : 1;
       }),
     [watching, upcomingMap]
@@ -258,7 +282,7 @@ export function Shows() {
           {filtered.length === 0
             ? <p className="text-zinc-500 text-sm px-4 py-6 text-center">No shows found</p>
             : filtered.map((s) => (
-              <ShowRow key={s.id} show={s} nextEp={nextToWatch(s)} upcoming={upcomingMap[s.id]} />
+              <ShowRow key={s.id} show={s} nextEp={nextToWatch(s, upcomingMap[s.id]?.lastAired)} upcoming={upcomingMap[s.id]?.upcoming} />
             ))
           }
         </div>
@@ -298,7 +322,7 @@ export function Shows() {
                       <ShowRow
                         key={s.id}
                         show={s}
-                        nextEp={nextToWatch(s)}
+                        nextEp={nextToWatch(s, upcomingMap[s.id]?.lastAired)}
                         upcoming={undefined}
                         onHide={() => hideFromContinueWatching(s.id)}
                       />
@@ -388,7 +412,7 @@ export function Shows() {
           {/* Upcoming tab */}
           {tab === 'upcoming' && (
             <div className="space-y-2">
-              {Object.values(upcomingMap).every((v) => v === null || v === undefined) && watching.length > 0 ? (
+              {Object.values(upcomingMap).every((v) => v === undefined) && watching.length > 0 ? (
                 <div className="flex flex-col items-center gap-2 py-16 text-zinc-500">
                   <Clock size={28} className="text-zinc-700" />
                   <p className="text-sm">Loading upcoming episodes…</p>
@@ -401,7 +425,7 @@ export function Shows() {
               ) : (
                 <div className="bg-zinc-800/60 border border-white/5 rounded-xl overflow-hidden divide-y divide-white/5">
                   {upcomingList.map((s) => (
-                    <ShowRow key={s.id} show={s} nextEp={null} upcoming={upcomingMap[s.id]} />
+                    <ShowRow key={s.id} show={s} nextEp={null} upcoming={upcomingMap[s.id]?.upcoming} />
                   ))}
                 </div>
               )}
