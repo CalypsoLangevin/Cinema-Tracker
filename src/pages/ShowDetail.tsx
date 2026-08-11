@@ -83,6 +83,14 @@ function EpisodeRow({ ep, seasonNumber, watched, watchedAt, rewatchDates, onLog,
             onChange={(e) => setDate(e.target.value)}
             className="bg-zinc-700 text-white text-xs px-2.5 py-1.5 rounded-lg border border-white/5 focus:border-brand/50 focus:outline-none"
           />
+          {ep.air_date && (
+            <button
+              onClick={() => setDate(ep.air_date!.slice(0, 10))}
+              className="text-xs px-2 py-1.5 rounded-lg bg-zinc-700 text-zinc-400 hover:text-white transition"
+            >
+              Release date
+            </button>
+          )}
           <button
             onClick={mode === 'rewatch' ? confirmRewatch : confirmLog}
             className="p-1.5 rounded-lg bg-brand text-black transition"

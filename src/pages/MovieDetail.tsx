@@ -149,6 +149,14 @@ export function MovieDetail() {
                   onChange={(e) => setWatchDate(e.target.value)}
                   className="bg-zinc-700 text-white text-sm px-3 py-1.5 rounded-lg border border-white/5 focus:border-brand/50 focus:outline-none"
                 />
+                {detail?.release_date && (
+                  <button
+                    onClick={() => setWatchDate(detail.release_date!.slice(0, 10))}
+                    className="text-sm px-2.5 py-1.5 rounded-lg bg-zinc-700 text-zinc-400 hover:text-white transition"
+                  >
+                    Release date
+                  </button>
+                )}
                 <button onClick={confirmWatch} className="p-2 rounded-lg bg-brand hover:bg-brand text-black transition" title="Confirm">
                   <Check size={14} />
                 </button>
