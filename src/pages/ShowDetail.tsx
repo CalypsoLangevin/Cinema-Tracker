@@ -23,11 +23,10 @@ interface EpisodeRowProps {
 
 function EpisodeRow({ ep, seasonNumber, watched, watchedAt, rewatchDates, onLog, onUnlog, onRewatch }: EpisodeRowProps) {
   const [mode, setMode] = useState<'idle' | 'log' | 'rewatch'>('idle');
-  const airDate = ep.air_date?.slice(0, 10) ?? todayStr();
-  const [date, setDate] = useState(airDate);
+  const [date, setDate] = useState(todayStr());
 
   const openMode = (m: 'log' | 'rewatch') => {
-    setDate(airDate);
+    setDate(todayStr());
     setMode(mode === m ? 'idle' : m);
   };
 

@@ -79,7 +79,8 @@ function ShowRow({
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [swiped, setSwiped] = useState(false);
 
-  const THRESHOLD = 72; // px needed to reveal the hide button
+  const THRESHOLD = 72; // px to fully reveal the hide button
+  const TRIGGER = 48;   // px needed to latch open
 
   function onTouchStart(e: React.TouchEvent) {
     startXRef.current = e.touches[0].clientX;
@@ -90,7 +91,7 @@ function ShowRow({
     if (dx > 0) setSwipeOffset(Math.min(dx, THRESHOLD));
   }
   function onTouchEnd() {
-    if (swipeOffset >= THRESHOLD) {
+    if (swipeOffset >= TRIGGER) {
       setSwiped(true);
     } else {
       setSwipeOffset(0);
@@ -152,6 +153,15 @@ function ShowRow({
             <p className="text-xs text-zinc-400">S{String(upcoming.season).padStart(2, '0')}E{String(upcoming.episode).padStart(2, '0')}</p>
             <p className="text-xs text-brand mt-0.5">{upcoming.airDate ? new Date(upcoming.airDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Soon'}</p>
           </div>
+        )}
+        {onHide && (
+          <button
+            onClick={(e) => { e.preventDefault(); handleHide(); }}
+            className="hidden sm:flex items-center justify-center p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-700 transition shrink-0"
+            title="Hide from list"
+          >
+            <EyeOff size={14} />
+          </button>
         )}
         <ChevronRight size={14} className="text-zinc-600 shrink-0" />
       </Link>
