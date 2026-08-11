@@ -192,13 +192,18 @@ export function Shows() {
 
   const toWatchList = useMemo(() =>
     [...watching]
-      .filter((s) => !hiddenShows.includes(s.id))
+      .filter((s) => {
+        if (hiddenShows.includes(s.id)) return false;
+        // Hide if user is caught up: no unwatched released episode, but an upcoming one exists
+        const caughtUp = nextToWatch(s) === null && upcomingMap[s.id] !== undefined;
+        return !caughtUp;
+      })
       .sort((a, b) => {
         const latestA = a.watchedEpisodes.length ? Math.max(...a.watchedEpisodes.map((e) => new Date(e.watchedAt).getTime())) : 0;
         const latestB = b.watchedEpisodes.length ? Math.max(...b.watchedEpisodes.map((e) => new Date(e.watchedAt).getTime())) : 0;
         return latestB - latestA;
       }),
-    [watching, hiddenShows]
+    [watching, hiddenShows, upcomingMap]
   );
 
   const visibleToWatch = expanded ? toWatchList : toWatchList.slice(0, COLLAPSED_COUNT);
